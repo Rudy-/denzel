@@ -5,7 +5,7 @@ const ObjectId = require("mongodb").ObjectID;
 
 const imdb = require("./src/imdb");
 
-const CONNECTION_URL = "mongodb+srv://denzel-api:<password>@denzel-rudy-qwjlv.mongodb.net/test?retryWrites=true";
+const CONNECTION_URL = "mongodb+srv://denzel-api:WnQwBrgcbBtc0NQR@denzel-rudy-qwjlv.mongodb.net/test?retryWrites=true";
 const DATABASE_NAME = "denzel";
 
 const DENZEL_IMDB_ID = "nm0000243";
@@ -78,13 +78,23 @@ app.get("/movies/search", (request, response) => {
   }
 
   collection.aggregate([
-      { $match: { metascore: { $gte: metascore }}},
-      { $sample: { size: limit }}
-    ]).sort({"metascore": -1}).toArray((error, result) => {
-      if(error) {
-        return response.status(500).send(error);
-      }
+    { $match: { metascore: { $gte: metascore }}},
+    { $sample: { size: limit }}
+  ]).sort({"metascore": -1}).toArray((error, result) => {
+    if(error) {
+      return response.status(500).send(error);
+    }
 
-      response.send("{\"limit\": " + limit + ",\"results\": " + JSON.stringify(result) + ", \"total\": " + result.length + "}");
-    });
+    response.send("{\"limit\": " + limit + ",\"results\": " + JSON.stringify(result) + ", \"total\": " + result.length + "}");
+  });
+});
+
+app.post("/movies/:id", (request, response) => {
+  collection.updateOne({ "id": request.params.id }, { $set: request.body }, (error, result) => {
+    if(error) {
+      return response.status(500).send(error);
+    }
+
+    response.send(result);
+  });
 });
