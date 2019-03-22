@@ -1,9 +1,14 @@
 const Express = require("express");
 const BodyParser = require("body-parser");
+const lodash = require('lodash');
 const MongoClient = require("mongodb").MongoClient;
 const ObjectId = require("mongodb").ObjectID;
 
 const imdb = require("./src/imdb");
+
+const graphqlHTTP = require('express-graphql');
+const { GraphQLSchema } = require('graphql');
+const { GraphQLObjectType, GraphQLString, GraphQLInt, GraphQLList, GraphQL } = require('graphql');
 
 const CONNECTION_URL = "mongodb+srv://denzel-api:WnQwBrgcbBtc0NQR@denzel-rudy-qwjlv.mongodb.net/test?retryWrites=true";
 const DATABASE_NAME = "denzel";
@@ -90,7 +95,7 @@ app.get("/movies/search", (request, response) => {
 });
 
 app.post("/movies/:id", (request, response) => {
-  collection.updateOne({ "id": request.params.id }, { $set: request.body }, (error, result) => {
+  collection.updateOne({ "id": request.params.id }, { $set: { "date": request.query.date, "review": request.query.review }}, (error, result) => {
     if(error) {
       return response.status(500).send(error);
     }
@@ -98,3 +103,113 @@ app.post("/movies/:id", (request, response) => {
     response.send(result);
   });
 });
+
+const movieType = new GraphQLObjectType({
+  name: 'Movie',
+  fields: {
+    id : { type : GraphQLString },
+    link: { type: GraphQLString },
+    metascore: { type: GraphQLInt },
+    synopsis: { type: GraphQLString },
+    title: { type: GraphQLString },
+    year: { type: GraphQLInt },
+    date: { type:GraphQLString },
+    review: { type:GraphQLString }
+  }
+});
+
+const queryType = new GraphQLObjectType({
+  name: 'Query',
+  fields: {
+    populateMovies: {
+      type: GraphQLString,
+
+      resolve: async function() {
+        if(collection.countDocuments() == 0) {
+          var denzel = await imdb(DENZEL_IMDB_ID);
+          
+          collection.insertMany(denzel);
+
+          return "The database is populated with " + collection.countDocuments() + ".";
+        }
+      }
+    },
+
+    movies: {
+      type: movieType,
+      args: { id: { type: GraphQLString }},
+
+      resolve: async function(source, args) {
+        data = await collection.find().toArray();
+
+        return lodash.find(data, { id: args.id });
+      }
+    },
+
+    randomMovie: {
+      type: movieType,
+
+      resolve: async function() {
+        data = await collection.aggregate([
+          { $match: { metascore: { $gte: 70 } } },
+          { $sample: { size: 1 } }
+        ]).toArray();
+        
+        return data;
+      }
+    },
+
+    searchMovie:{
+      type: new GraphQLList(movieType),
+      args: {
+        limit: { type: GraphQLString },
+        metascore:{ type: GraphQLString }
+      },
+
+      resolve: async function (source, args) {
+        let meta = 0;
+        let limit = 5;
+            
+        meta = Number(args.metascore);
+        limit = Number(args.limit);
+            
+        data = await collection.find({"metascore": { $gte: meta }}).sort({"metascore": -1}).toArray();
+          
+        var result = [];
+        
+        for(let i = 0; i < limit; i++)
+        {
+          if(data[i] != null){
+            result.push(data[i]);
+          }
+        }
+      
+        return result;
+      }
+    },
+
+    reviewMovie: {
+      type: movieType,
+      args: {
+        id: { type:GraphQLString },
+        date: { type: GraphQLString },
+        review:{ type: GraphQLString }
+      },
+
+      resolve: async function(source, args) {
+        collection.updateOne({ "id": args.id }, { $set: { "date": args.date, "review": args.review }});
+        
+        data = await collection.find().toArray();
+        
+        return lodash.find(data, { id: args.id });
+      }
+    }
+  }
+});
+
+const schema = new GraphQLSchema({ query: queryType });
+
+app.use('/graphql', graphqlHTTP({
+  schema: schema,
+  graphiql: true,
+}));
